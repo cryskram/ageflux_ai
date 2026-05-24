@@ -26,14 +26,16 @@ class UTKFaceDataset(Dataset):
             try:
                 age = int(file.split("_")[0])
 
-                if age <= 25:
-                    label = 0
-
-                elif age >= 50:
-                    label = 1
-
+                if age <= 12:
+                    label = 0  # Child
+                elif age <= 25:
+                    label = 1  # Young
+                elif age <= 40:
+                    label = 2  # Adult
+                elif age <= 55:
+                    label = 3  # Middle
                 else:
-                    continue
+                    label = 4  # Old
 
                 self.image_files.append((file, label))
 

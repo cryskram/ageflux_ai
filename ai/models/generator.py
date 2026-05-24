@@ -2,79 +2,63 @@ import torch
 import torch.nn as nn
 
 
-class Generator(nn.Module):
-    def __init__(self, age_classes=2):
+class ResidualBlock(nn.Module):
+    def __init__(self, channels):
         super().__init__()
 
-        self.label_emb = nn.Embedding(age_classes, 128)
+        self.block = nn.Sequential(
+            nn.Conv2d(channels, channels, 3, 1, 1),
+            nn.InstanceNorm2d(channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channels, channels, 3, 1, 1),
+            nn.InstanceNorm2d(channels),
+        )
 
-        self.enc1 = nn.Sequential(nn.Conv2d(3, 64, 4, 2, 1), nn.LeakyReLU(0.2))
+    def forward(self, x):
+        return x + self.block(x)
 
-        self.enc2 = nn.Sequential(
+
+class Generator(nn.Module):
+    def __init__(self, age_classes=5):
+        super().__init__()
+
+        in_channels = 3 + age_classes
+
+        self.model = nn.Sequential(
+            nn.Conv2d(in_channels, 64, 7, 1, 3),
+            nn.InstanceNorm2d(64),
+            nn.ReLU(inplace=True),
             nn.Conv2d(64, 128, 4, 2, 1),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.2),
-        )
-
-        self.enc3 = nn.Sequential(
+            nn.InstanceNorm2d(128),
+            nn.ReLU(inplace=True),
             nn.Conv2d(128, 256, 4, 2, 1),
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.2),
+            nn.InstanceNorm2d(256),
+            nn.ReLU(inplace=True),
+            ResidualBlock(256),
+            ResidualBlock(256),
+            ResidualBlock(256),
+            ResidualBlock(256),
+            ResidualBlock(256),
+            ResidualBlock(256),
+            nn.ConvTranspose2d(256, 128, 4, 2, 1),
+            nn.InstanceNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(128, 64, 4, 2, 1),
+            nn.InstanceNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 3, 7, 1, 3),
+            nn.Tanh(),
         )
-
-        self.enc4 = nn.Sequential(
-            nn.Conv2d(256, 512, 4, 2, 1),
-            nn.BatchNorm2d(512),
-            nn.LeakyReLU(0.2),
-        )
-        self.bottleneck = nn.Sequential(
-            nn.Conv2d(640, 512, 3, 1, 1), nn.BatchNorm2d(512), nn.ReLU()
-        )
-
-        self.dec1 = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, 4, 2, 1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-        )
-
-        self.dec2 = nn.Sequential(
-            nn.ConvTranspose2d(512, 128, 4, 2, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-        )
-
-        self.dec3 = nn.Sequential(
-            nn.ConvTranspose2d(256, 64, 4, 2, 1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-        )
-
-        self.dec4 = nn.Sequential(nn.ConvTranspose2d(128, 3, 4, 2, 1), nn.Tanh())
 
     def forward(self, x, labels):
-        batch_size = x.size(0)
+        batch_size, _, h, w = x.size()
 
-        e1 = self.enc1(x)
-        e2 = self.enc2(e1)
-        e3 = self.enc3(e2)
-        e4 = self.enc4(e3)
+        one_hot = torch.zeros(batch_size, 5, device=x.device)
+        one_hot.scatter_(1, labels.unsqueeze(1), 1)
 
-        label_embedding = self.label_emb(labels)
-        label_embedding = label_embedding.view(batch_size, 128, 1, 1)
-        label_embedding = label_embedding.expand(-1, -1, 8, 8)
+        label_map = one_hot.view(batch_size, 5, 1, 1)
+        label_map = label_map.expand(-1, -1, h, w)
 
-        bottleneck_input = torch.cat([e4, label_embedding], dim=1)
-        b = self.bottleneck(bottleneck_input)
+        x = torch.cat([x, label_map], dim=1)
 
-        d1 = self.dec1(b)
-
-        d1 = torch.cat([d1, e3], dim=1)
-        d2 = self.dec2(d1)
-
-        d2 = torch.cat([d2, e2], dim=1)
-        d3 = self.dec3(d2)
-
-        d3 = torch.cat([d3, e1], dim=1)
-        out = self.dec4(d3)
-
-        return out
+        return self.model(x)

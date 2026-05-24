@@ -4,9 +4,8 @@ from models.discriminator import Discriminator
 model = Discriminator()
 
 x = torch.randn(4, 3, 128, 128)
-labels = torch.tensor([0, 1, 0, 1])
 
-out = model(x, labels)
+validity, age_logits = model(x)
 
-print("Output shape:", out.shape)
-print("Scores:", out)
+print("Validity shape:", validity.shape)
+print("Age logits shape:", age_logits.shape)
